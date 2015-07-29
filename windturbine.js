@@ -1,8 +1,6 @@
-"use strict";
-
 /**
- * @author John Weisz
- * @version 1.0
+ * @author John White
+ * @version 0.9 BETA
  * @license The MIT License (MIT)
  * @copyright John White 2015
  * @name WindTurbine AJAX
@@ -37,7 +35,6 @@ var WindTurbine = function () {
     var defaultSettings = {
         stackable: true,
         cache: true,
-        syncCache: true,
         queue: false,
         method: 'GET',
         expire: 10000 // in-memory cached responses expire after 10 seconds
@@ -49,12 +46,7 @@ var WindTurbine = function () {
      * @param {object} settings
      */
     this.setup = function (settings) {
-        // assign own properties
-        for (var key in settings) {
-            if (settings.hasOwnProperty(key)) {
-                defaultSettings[key] = settings[key];
-            }
-        }
+        utility.copySettings(settings, defaultSettings);
     };
 
     /**
@@ -62,8 +54,6 @@ var WindTurbine = function () {
      * @param {object} settings
      */
     this.ajax = function (settings) {
-        var key; // a key generated from settings' properties
-        var xhr; // XMLHttpRequest or derivedXHR
         var dh;  // timeout handle for delayed requests
 
         settings = utility.initSettings(settings || {});
@@ -73,83 +63,35 @@ var WindTurbine = function () {
                 settings.delay = 0;
                 __this__.ajax(settings);
             }, settings.delay);
-
-            // delayed requests return the timeout handle by default
-            if (!settings.returnHandle || settings.returnHandle === 'timeout') {
-                return dh;
-            } else {
-                return false;
-            }
+            
+            return dh;
         }
 
-        if (invokeUserCallback(settings.before, [settings]) === false) {
+        /*
+        // before callback
+        if (utility.invokeUserCallback(settings.before, [settings]) === false) {
             // request aborted
-            invokeUserCallback(settings.error, ['abort']);
-            invokeUserCallback(settings.complete, ['abort']);
+            utility.invokeUserCallback(settings.error, ['abort']);
+            utility.invokeUserCallback(settings.complete, ['abort']);
             return false;
         }
-
+        */
+        
+        // the derived key is also passed as an argument, so it does not have to be
+        // created again (with JSON, that might be relatively expensive)
         core.controller.init(settings, function (result) {
             // control callback
             if (result.label == 'success') {
-                invokeUserCallback(settings.success, [result.response, result.xhr]);
+                utility.invokeUserCallback(settings.success, [result.response, result.xhr]);
             } else {
-                invokeUserCallback(settings.error, [result.label, result.error, result.xhr]);
+                utility.invokeUserCallback(settings.error, [result.label, result.error, result.xhr]);
             }
 
-            invokeUserCallback(settings.complete, [result.label, result.xhr]);
+            utility.invokeUserCallback(settings.complete, [result.label, result.xhr]);
         });
-
-        // synchronous XMLHttpRequest is deprecated, and is in the process of being
-        // removed: https://xhr.spec.whatwg.org/#synchronous-flag; however, synchronous
-        // requests should be perfectly viable in WindTurbine with aggressive preloading
-        // configuration
-        /*
-        if (settings.synchronous) {
-            //while ()
-        }
-        */
-
-        // stackable requests return stack key by default
-        /*
-        if (key && (!settings.returnHandle || settings.returnHandle == 'key')) {
-
-        }
-        */
-    };
-
-    /**
-     * http://wtajax.tk/doc/methods/cancel
-     * @params {mixed} request
-     */
-    this.cancel = function (request) {
-        var key;
-        var settings;
-
-        if (typeof request === 'XMLHttpRequest' || typeof request === 'ActiveXObject') {
-            request.abort();
-            return true;
-        }
-
-        if (typeof request === 'string') {
-            key = request;
-        } else {
-            settings = utils.initSettings(request);
-            key = wtCore.stacking.keyIfStackable(settings);
-        }
-
-        if (key === false) {
-            // non stackable requests cannot be cancelled
-            return false;
-        }
-
-        if (loading.hasOwnProperty(key)) {
-            loading[key].xhr.abort();
-        }
 
         return true;
     };
-
 
     /**
      * http://wtajax.tk/doc/methods/preload
@@ -159,7 +101,9 @@ var WindTurbine = function () {
      * @param {object} [settings]
      */
     this.preload = function (url, life, expire, settings) {
-        var new_settings = settings || {};
+        var new_settings = {};
+
+        utility.copySettings(settings, new_settings);
 
         new_settings.url = url;
         new_settings.life = life || 1;
@@ -177,24 +121,31 @@ var WindTurbine = function () {
      * @param {object}   [settings]
      */
     this.get = function (url, success, error, settings) {
-        settings = settings || {};
+        var new_settings = {};
 
-        settings.url = url;
-        settings.method = 'GET';
-        settings.success = success || null;
-        settings.error = error || null;
+        utility.copySettings(settings, new_settings);
+
+        new_settings.url = url;
+        new_settings.method = 'GET';
 
         // if there is no error callback specified, and dataType is not set to any
         // special value, the success callback will be invoked on request failure, its
         // response argument becoming the message portion of the error callback's Error
         // argument
-        if (!settings.error && settings.success && !('dataType' in settings)) {
-            settings.error = function (label, error, xhr) {
-                settings.success(error.message, xhr);
+        if (!error && success && (!settings || !('dataType' in settings))) {
+            new_settings.error = function (label, error, xhr) {
+                new_settings.success(error.message, xhr, label);
             };
+
+            new_settings.success = function (response, xhr) {
+                success(response, xhr, 'success');
+            };
+        } else {
+            new_settings.success = success || null;
+            new_settings.error = error || null;
         }
 
-        __this__.ajax(settings);
+        __this__.ajax(new_settings);
     };
 
     /**
@@ -206,13 +157,15 @@ var WindTurbine = function () {
      * @param {object}   [settings]
      */
     this.post = function (url, data, success, error, settings) {
-        settings = settings || {};
+        var new_settings = {};
 
-        settings.url = url;
-        settings.method = 'POST';
-        settings.data = data;
-        settings.success = success || null;
-        settings.error = error || null;
+        utility.copySettings(settings, new_settings);
+
+        new_settings.url = url;
+        new_settings.method = 'POST';
+        new_settings.data = data;
+        new_settings.success = success || null;
+        new_settings.error = error || null;
 
         // if data is object literal, set dataType to 'json'
         if (settings.data && settings.data.constructor === {}.constructor) {
@@ -229,6 +182,46 @@ var WindTurbine = function () {
             };
         }
 
+        __this__.ajax(settings);
+    };
+
+    /**
+     * http://wtajax.tk/doc/methods/json
+     * @param {string}   url
+     * @param {mixed}    [data_or_callback]
+     * @param {function} [callback]
+     */
+    this.json = function (url, data_or_callback, callback) {
+        var data;
+        var settings;
+
+        if (typeof data_or_callback == 'function') {
+            callback = data_or_callback;
+            data = null;
+        } else {
+            data = data_or_callback;
+        }
+
+        if (data) {
+            settings.method = 'POST';
+        } else {
+            settings.method = 'GET';
+            settings.cache = false;
+            settings.stackable = false;
+        }
+
+        settings.url = url;
+        settings.dataType = 'json';
+
+        settings.success = function (response, xhr) {
+            if (callback) callback(response, xhr);
+        };
+
+        settings.error = function (status, error, xhr) {
+            console.error(error, xhr);
+            if (callback) callback(null, xhr);
+        };
+        
         __this__.ajax(settings);
     };
 
@@ -297,13 +290,16 @@ var WindTurbine = function () {
              * @param {object}   settings
              * @param {string}   key
              * @param {function} control_callback
+             * 
+             * @todo request stacking might be possible using queuing (less code?)
              */
             addRequest: function (settings, key, control_callback) {
                 var xhr;
+                var _this_ = this;
 
                 if (settings.preloadOnly) {
                     // if request already loaded or loading: abort
-                    if (this.getCached(key, true) && this.loading.hasOwnProperty(key)) {
+                    if (this.getCached(key, true) || this.loading.hasOwnProperty(key)) {
                         control_callback({
                             label: 'abort',
                             xhr: this.loading[key] || this.loaded[key].xhr
@@ -317,6 +313,7 @@ var WindTurbine = function () {
                 // one is not yet loading/loaded
                 if ((xhr = this.getCached(key)) !== false) {
                     // the result of an identical request has been loaded recently, successfully
+                    console.log("Serve response from cache.");
                     try {
                         control_callback({
                             label: 'success',
@@ -332,6 +329,8 @@ var WindTurbine = function () {
                     }
                 } else {
                     if (this.loading.hasOwnProperty(key) && this.loading[key].bActive) {
+                        console.log("Collapse request.");
+
                         // an identical request is already loading, wait for it
                         xhr = this.loading[key].xhr;
 
@@ -370,12 +369,12 @@ var WindTurbine = function () {
                             // possible to delete loading[key] - instead, mark it
                             // as 'not active', so new requests don't see an
                             // "already loading" status
-                            this.loading[key].bActive = false;
+                            _this_.loading[key].bActive = false;
 
                             if (result.label == 'success' && settings.life > 0) {
                                 // if life was set, this request was meant to be reused for subsequent identical
                                 // requests from the in-memory cache for a limited duration
-                                this.loaded[key] = {
+                                _this_.loaded[key] = {
                                     // relevant properties of the XHR object like
                                     // response and status
                                     xhr: core.request.derive(xhr),
@@ -396,7 +395,7 @@ var WindTurbine = function () {
                                 // invoking the necessary user defined callbacks, and it is also guaranteed that
                                 // no additional requests have been collapsed into this XHR (for it was marked
                                 // as inactive); it is now safe to delete
-                                delete core.stack.loading[key];
+                                delete _this_.loading[key];
                             }, 0);
 
                             control_callback(result);
@@ -416,15 +415,17 @@ var WindTurbine = function () {
              * Generate a stack key from the request settings. Two identical requests will
              * always yield the same key, that's how they can be collapsed into each other.
              * 
-             * @param {object} settings
+             * @param  {object} settings
+             * @return {string} the stack key generated (derived) from settings
+             * @nosideeffects
              */
             createKey: function (settings) {
                 // request stacking requires some technologies to be present to work:
                 if (
                     !('XMLHttpRequestEventTarget' in window) || // XHR2 event interface required
-                    !('JSON' in window) || // JSON required for generating keys
-                    !settings.stackable || // caller must allow stacking (default true)
-                    !utility.isSafeMethod(settings.method) // GET and HEAD only
+                    !('JSON' in window) ||                      // JSON required for generating keys
+                    !settings.stackable ||                      // caller must allow stacking
+                    !utility.isSafeMethod(settings.method)      // GET and HEAD only
                 )
                     // while WindTurbine does work correctly without any of these, request stacking
                     // will not be available; this, however, will not affect WindTurbine in any way,
@@ -440,7 +441,7 @@ var WindTurbine = function () {
                         settings.headers,
                         settings.username,
                         settings.password,
-                        (settings.method || 'GET')
+                        settings.method
                     ]);
                 } catch (e) {
                     // these warnings occur in full source version only
@@ -460,6 +461,8 @@ var WindTurbine = function () {
              * @param {boolean} [b_peek=false]
              */
             getCached: function (key, b_peek) {
+                var _this_ = this;
+
                 if (key && this.loaded.hasOwnProperty(key) && this.loaded[key].life > 0) {
                     // this item might be used, but also check timestamp
                     if (this.loaded[key].timestamp > Date.now() - this.loaded[key].expire) {
@@ -472,7 +475,7 @@ var WindTurbine = function () {
                             // since each _resultIfLoaded call also does a preliminary life
                             // check, this can run async
                             setTimeout(function () {
-                                delete this.loaded[key];
+                                delete _this_.loaded[key];
                             }, 0);
                         }
 
@@ -480,7 +483,7 @@ var WindTurbine = function () {
                     } else {
                         // garbage collection for expired item
                         setTimeout(function () {
-                            delete this.loaded[key];
+                            delete _this_.loaded[key]
                         }, 0);
 
                         return false;
@@ -493,22 +496,10 @@ var WindTurbine = function () {
         request: {
             /**
              * Creates and returns an XMLHttpRequest object, or an ActiveXObject as
-             * fallback for older browsers. If a factory is specified, it is expected
-             * to do this by return value.
-             * 
-             * @param {function} [factory]
+             * fallback for older browsers.
              */
             create: function (factory) {
-                var xhr;
-
-                if (factory)
-                    xhr = utility.invokeUserCallback(factory);
-                else
-                    xhr = new (window.XMLHttpRequest || window.ActiveXObject)('MSXML2.XMLHTTP.3.0');
-
-                return xhr;
-
-                //xhr.onWtReady = function () {};
+                return new (window.XMLHttpRequest || window.ActiveXObject)('MSXML2.XMLHTTP.3.0');
             },
             derive: function (xhr) {
                 var headers = xhr.getAllResponseHeaders();
@@ -539,9 +530,11 @@ var WindTurbine = function () {
                 }
             },
             send: function (xhr, settings, control_callback) {
+                var url = settings.url;
+
                 if (utility.isSafeMethod(settings.method) && settings.cache) {
                     // append timestamp to disable caching
-                    if (url.indexOf('?') === -1) {
+                    if (settings.url.indexOf('?') === -1) {
                         url += '?_=' + Date.now();
                     } else {
                         url += '&_=' + Date.now();
@@ -549,14 +542,14 @@ var WindTurbine = function () {
                 }
 
                 xhr.open(
-                    settings.method || 'GET',
+                    settings.method,
                     url,
                     true,
                     settings.username || null,
                     settings.password || null
                 );
 
-                if (settings.dataType === 'json') {
+                if (settings.dataType == 'json') {
                     xhr.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
                 } else {
                     xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
@@ -588,8 +581,8 @@ var WindTurbine = function () {
                         } else {
                             // manual timeout using abort()
                             setTimeout(function () {
-                                if (!xhr || xhr.readyState !== 4) return;
-                                //xhr.abort();
+                                if (!xhr || xhr.readyState === 4) return;
+                                xhr.abort();
                             }, settings.timeout);
                         }
                     }
@@ -599,13 +592,21 @@ var WindTurbine = function () {
                 core.request.onReady(xhr, settings, control_callback);
 
                 if (settings.data) {
-                    console.log('data (type ' + (settings.dataType || 'auto') + '):');
-                    console.log(settings.data);
+                    switch (typeof settings.data) {
+                        case 'string':
+                        case 'arrayBuffer':
+                        case 'arrayBufferView':
+                        case 'blob':
+                        case 'document':
+                        case 'formData':
+                            // data is compatible with xhr.send
+                            xhr.send(settings.data);
+                            break;
 
-                    if (settings.dataType === 'json') {
-                        xhr.send(window.JSON.stringify(settings.data));
-                    } else {
-                        xhr.send(settings.data);
+                        default:
+                            // convert generic object to query string
+                            xhr.send(this.queryString(settings.data));
+                            break;
                     }
                 } else {
                     xhr.send();
@@ -628,7 +629,7 @@ var WindTurbine = function () {
                         try {
                             control_callback({
                                 label: 'success',
-                                response: core.request.extractResponse(xhr, settings.dataType),
+                                response: core.request.getResponse(xhr, settings.dataType),
                                 xhr: xhr
                             });
                         } catch (e) {
@@ -703,7 +704,6 @@ var WindTurbine = function () {
             },
             getResponse: function (xhr, dataType) {
                 // get Content-Type (without charset)
-                var content_type = xhr.getResponseHeader('Content-Type').split(';')[0];
                 var mime_types = {
                     'application/json': 'json',
                     'application/x-resource+json': 'json',      // v
@@ -714,7 +714,7 @@ var WindTurbine = function () {
                 };
 
                 if (!dataType) {
-                    dataType = mime_types[content_type] || content_type;
+                    dataType = mime_types[xhr.getResponseHeader('Content-Type').split(';')[0]];
                 }
 
                 switch (dataType) {
@@ -730,6 +730,50 @@ var WindTurbine = function () {
                         return xhr.responseText;
                         break;
                 }
+            },
+            queryString: function (data) {
+                var query_string = '';
+                var n = 0;
+
+                for (var key in settings.data) {
+                    if (data.hasOwnProperty(key)) {
+                        switch (typeof data[key]) {
+                            case 'string':
+                            case 'number':
+                            case 'boolean':
+                            case 'object':
+                            case 'symbol':
+                                // valid type
+                                if (n++ > 0) {
+                                    // add glue
+                                    query_string += '&';
+                                }
+
+                                query_string += key + '=';
+
+                                if (typeof data[key] == 'object') {
+                                    // composite object type, attempt to convert to JSON string
+                                    try {
+                                        query_string += encodeURIComponent(JSON.stringify(settings.data[key]));
+                                    } catch (e) {
+                                        console.error("The following property could not be appended to query string: " + key);
+                                        console.error(e);
+                                    }
+                                } else {
+                                    query_string += encodeURIComponent(data[key]);
+                                }
+
+                                break;
+
+                            default:
+                                // JSON encode
+                                console.error("The following property could not be appended to query string: " + key);
+                                break;
+                        }
+                    }
+                }
+
+                return query_string;
             }
         }
     }
@@ -737,12 +781,15 @@ var WindTurbine = function () {
     var utility = {
         initSettings: function (settings) {
             var attr;
+            var new_settings = {};
 
             /*
             if (bStrictMode && settings && settings.constructor !== {}.constructor) {
                 throw new TypeError('Settings argument is not an object-literal.');
             }
             */
+
+            this.copySettings(settings, new_settings);
 
             // assign element data attributes
             if (settings.srcElement) {
@@ -754,37 +801,32 @@ var WindTurbine = function () {
                             return $1.toUpperCase();
                         });
 
-                        settings[camelCaseName] = attr.value;
+                        new_settings[camelCaseName] = attr.value;
                     }
                 }
             }
 
             // assign default values
             for (var key in defaultSettings) {
-                if (defaultSettings.hasOwnProperty(key)) {
-                    // if not set
-                    if (!settings.hasOwnProperty(key)) {
-                        settings[key] = defaultSettings[key];
-                    }
+                if (defaultSettings.hasOwnProperty(key) && !new_settings.hasOwnProperty(key)) {
+                    new_settings[key] = defaultSettings[key];
                 }
             }
 
             // if preloadOnly is true, but there is no life setting, default to 1
-            if (settings.preloadOnly && !settings.life) {
-                settings.life = 1;
+            if (new_settings.preloadOnly && !new_settings.life) {
+                new_settings.life = 1;
             }
 
             // capitalize method string; it's easier and results in less code overall
-            if (settings.method) {
-                settings.method = settings.method.toUpperCase();
+            if (new_settings.method) {
+                new_settings.method = new_settings.method.toUpperCase();
             }
 
-            // lowercase returnHandle string, same as above
-            if (settings.returnHandle) {
-                settings.returnHandle = settings.returnHandle.toLowerCase();
-            }
+            // default URL must be live URL
+            new_settings.url = new_settings.url || window.location.href;
 
-            return settings;
+            return new_settings;
         },
         addEvent: function (obj, type, handler) {
             try {
@@ -803,7 +845,7 @@ var WindTurbine = function () {
             // try ... catch block for user defined callback functions, so that a faulty
             // `success/error/etc.` callback can never prevent a `complete` callback
             try {
-                if (typeof fn === 'string') {
+                if (typeof fn == 'string') {
                     var namespaces = fn.split('.');
                     var fnObjString = namespaces.pop();
                     var context = window;
@@ -823,10 +865,20 @@ var WindTurbine = function () {
             }
         },
         isSafeMethod: function (method) {
-            if (!method || method == 'GET' || method == 'HEAD')
+            if (method == 'GET' || method == 'HEAD')
                 return true;
             // else
             return false;
+        },
+        copySettings: function (settings, new_settings) {
+            // copy additional settings
+            if (settings) {
+                for (var key in settings) {
+                    if (settings.hasOwnProperty(key)) {
+                        new_settings[key] = settings[key];
+                    }
+                }
+            }
         }
     }
 }
