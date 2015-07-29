@@ -9,7 +9,17 @@ A simple, lightweight, _blazing fast_, cross-browser compatible AJAX tool.
  - Cross-browser compatible
  - Offensively fast, using request stacking
  - Well documented
- 
+
+## How to use
+
+Fetching a simple text based resource is as easy as:
+
+```javascript
+wt.get('example.php', function (response) {
+    alert(response);
+});
+```
+
 ## Documentation
 
 The entire documentation, as well as examples are available at http://wtajax.tk/doc
