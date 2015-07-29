@@ -1,3 +1,5 @@
+"use strict";
+
 /**
  * @author John White
  * @version 0.9 BETA
@@ -167,22 +169,17 @@ var WindTurbine = function () {
         new_settings.success = success || null;
         new_settings.error = error || null;
 
-        // if data is object literal, set dataType to 'json'
-        if (settings.data && settings.data.constructor === {}.constructor) {
-            settings.dataType = 'json';
-        }
-
         // if there is no error callback specified, and dataType is not set to any
         // special value, the success callback will be invoked on request failure, its
         // response argument becoming the message portion of the error callback's Error
         // argument
-        if (!settings.error && settings.success && !('dataType' in settings)) {
-            settings.error = function (label, error, xhr) {
-                settings.success(error.message, xhr);
+        if (!new_settings.error && new_settings.success && !('dataType' in new_settings)) {
+            new_settings.error = function (label, error, xhr) {
+                new_settings.success(error.message, xhr);
             };
         }
 
-        __this__.ajax(settings);
+        __this__.ajax(new_settings);
     };
 
     /**
@@ -193,7 +190,7 @@ var WindTurbine = function () {
      */
     this.json = function (url, data_or_callback, callback) {
         var data;
-        var settings;
+        var settings = {};
 
         if (typeof data_or_callback == 'function') {
             callback = data_or_callback;
@@ -204,6 +201,7 @@ var WindTurbine = function () {
 
         if (data) {
             settings.method = 'POST';
+            settings.data = data;
         } else {
             settings.method = 'GET';
             settings.cache = false;
@@ -549,12 +547,6 @@ var WindTurbine = function () {
                     settings.password || null
                 );
 
-                if (settings.dataType == 'json') {
-                    xhr.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
-                } else {
-                    xhr.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
-                }
-
                 // authentication headers
                 if (settings.username || settings.password) {
                     xhr.setRequestHeader(
@@ -592,19 +584,24 @@ var WindTurbine = function () {
                 core.request.onReady(xhr, settings, control_callback);
 
                 if (settings.data) {
-                    switch (typeof settings.data) {
-                        case 'string':
-                        case 'arrayBuffer':
-                        case 'arrayBufferView':
-                        case 'blob':
-                        case 'document':
-                        case 'formData':
+                    switch (settings.data.constructor.name) {
+                        case 'ArrayBuffer':
+                        case 'ArrayBufferView':
+                        case 'Blob':
+                        case 'Document':
+                        case 'FormData':
                             // data is compatible with xhr.send
                             xhr.send(settings.data);
                             break;
 
+                        // case 'String':
                         default:
-                            // convert generic object to query string
+                            // automatically set header for query-string
+                            if (!settings.headers || !settings.headers['Content-Type']) {
+                                xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+                            }
+
+                            // convert generic object to query string, or clean query string
                             xhr.send(this.queryString(settings.data));
                             break;
                     }
@@ -735,7 +732,11 @@ var WindTurbine = function () {
                 var query_string = '';
                 var n = 0;
 
-                for (var key in settings.data) {
+                if (data.constructor.name == 'String') {
+                    return data;
+                }
+
+                for (var key in data) {
                     if (data.hasOwnProperty(key)) {
                         switch (typeof data[key]) {
                             case 'string':
@@ -754,7 +755,7 @@ var WindTurbine = function () {
                                 if (typeof data[key] == 'object') {
                                     // composite object type, attempt to convert to JSON string
                                     try {
-                                        query_string += encodeURIComponent(JSON.stringify(settings.data[key]));
+                                        query_string += encodeURIComponent(JSON.stringify(data[key]));
                                     } catch (e) {
                                         console.error("The following property could not be appended to query string: " + key);
                                         console.error(e);
