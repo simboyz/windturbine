@@ -33,3 +33,7 @@ Request stacking is a behind-the-scenes optimization technique WindTurbine imple
 ## How to help
 
 If you found WindTurbine to be useful, please help testing its functionality across multiple (and older) browsers.
+
+## License
+
+WindTurbine AJAX is available under the MIT License.
