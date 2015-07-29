@@ -12,7 +12,7 @@ A simple, lightweight, _blazing fast_, cross-browser compatible AJAX tool.
 
 ## How to use
 
-Fetching a simple text based resource is as easy as:
+Fetching a simple text based resource is as compact as:
 
 ```javascript
 wt.get('example.php', function (response) {
