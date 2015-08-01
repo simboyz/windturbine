@@ -1,5 +1,3 @@
-"use strict";
-
 /**
  * @author John White
  * @version 0.9 BETA
@@ -311,7 +309,10 @@ var WindTurbine = function () {
                 // one is not yet loading/loaded
                 if ((xhr = this.getCached(key)) !== false) {
                     // the result of an identical request has been loaded recently, successfully
-                    console.log("Serve response from cache.");
+                    if (DEBUG) {
+                        console.log("Serve response from cache.");
+                    }
+
                     try {
                         control_callback({
                             label: 'success',
@@ -327,7 +328,9 @@ var WindTurbine = function () {
                     }
                 } else {
                     if (this.loading.hasOwnProperty(key) && this.loading[key].bActive) {
-                        console.log("Collapse request.");
+                        if (DEBUG) {
+                            console.log("Collapse request.");
+                        }
 
                         // an identical request is already loading, wait for it
                         xhr = this.loading[key].xhr;
@@ -369,7 +372,7 @@ var WindTurbine = function () {
                             // "already loading" status
                             _this_.loading[key].bActive = false;
 
-                            if (result.label == 'success' && settings.life > 0) {
+                            if (result.label == 'success' && settings.life) {
                                 // if life was set, this request was meant to be reused for subsequent identical
                                 // requests from the in-memory cache for a limited duration
                                 _this_.loaded[key] = {
@@ -423,7 +426,8 @@ var WindTurbine = function () {
                     !('XMLHttpRequestEventTarget' in window) || // XHR2 event interface required
                     !('JSON' in window) ||                      // JSON required for generating keys
                     !settings.stackable ||                      // caller must allow stacking
-                    !utility.isSafeMethod(settings.method)      // GET and HEAD only
+                    (settings.method != 'GET' &&                // GET and ...
+                    settings.method != 'HEAD')                  // ... HEAD methods only
                 )
                     // while WindTurbine does work correctly without any of these, request stacking
                     // will not be available; this, however, will not affect WindTurbine in any way,
@@ -470,7 +474,7 @@ var WindTurbine = function () {
                             return true;
 
                         if (--this.loaded[key].life === 0) {
-                            // since each _resultIfLoaded call also does a preliminary life
+                            // since each getCached call also does a preliminary life
                             // check, this can run async
                             setTimeout(function () {
                                 delete _this_.loaded[key];
@@ -479,16 +483,16 @@ var WindTurbine = function () {
 
                         return this.loaded[key].xhr;
                     } else {
-                        // garbage collection for expired item
+                        // delete expired item
                         setTimeout(function () {
                             delete _this_.loaded[key]
                         }, 0);
 
                         return false;
                     }
-                } else {
-                    return false;
                 }
+
+                return false;
             }
         },
         request: {
@@ -530,7 +534,7 @@ var WindTurbine = function () {
             send: function (xhr, settings, control_callback) {
                 var url = settings.url;
 
-                if (utility.isSafeMethod(settings.method) && settings.cache) {
+                if (settings.cache) {
                     // append timestamp to disable caching
                     if (settings.url.indexOf('?') === -1) {
                         url += '?_=' + Date.now();
@@ -542,41 +546,37 @@ var WindTurbine = function () {
                 xhr.open(
                     settings.method,
                     url,
-                    true,
-                    settings.username || null,
-                    settings.password || null
+                    true, // async
+                    settings.username,
+                    settings.password
                 );
 
                 // authentication headers
                 if (settings.username || settings.password) {
                     xhr.setRequestHeader(
                         'Authorization',
-                        'Basic ' + btoa((settings.username || '') + ':' +
-                                (settings.password || ''))
+                        'Basic ' + btoa(settings.username + ':' + settings.password)
                     );
                 }
 
                 // apply user-provided request headers
-                if (settings.headers) {
+                //if (settings.headers) {
                     for (var key in settings.headers) {
                         if (settings.headers.hasOwnProperty(key)) {
                             xhr.setRequestHeader(key, settings.headers[key]);
                         }
                     }
-                }
+                //}
 
-                if (settings.timeout > 0) {
-                    if ('onload' in xhr) {
-                        // timeout only in XHR2 mode, regardless of ontimeout support
-                        if ('timeout' in xhr && 'ontimeout' in xhr) {
-                            xhr.timeout = settings.timeout;
-                        } else {
-                            // manual timeout using abort()
-                            setTimeout(function () {
-                                if (!xhr || xhr.readyState === 4) return;
-                                xhr.abort();
-                            }, settings.timeout);
-                        }
+                if (settings.timeout > 0 && 'onload' in xhr) {
+                    // timeout only in XHR2 mode, regardless of ontimeout support
+                    if ('timeout' in xhr) {
+                        xhr.timeout = settings.timeout;
+                    } else {
+                        // manual timeout using abort()
+                        setTimeout(function () {
+                            if (xhr && xhr.readyState !== 4) xhr.abort();
+                        }, settings.timeout);
                     }
                 }
 
@@ -584,26 +584,14 @@ var WindTurbine = function () {
                 core.request.onReady(xhr, settings, control_callback);
 
                 if (settings.data) {
-                    switch (settings.data.constructor.name) {
-                        case 'ArrayBuffer':
-                        case 'ArrayBufferView':
-                        case 'Blob':
-                        case 'Document':
-                        case 'FormData':
-                            // data is compatible with xhr.send
-                            xhr.send(settings.data);
-                            break;
+                    if (settings.process) {
+                        if (!settings.headers || !settings.headers['Content-Type']) {
+                            xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+                        }
 
-                        // case 'String':
-                        default:
-                            // automatically set header for query-string
-                            if (!settings.headers || !settings.headers['Content-Type']) {
-                                xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-                            }
-
-                            // convert generic object to query string, or clean query string
-                            xhr.send(this.queryString(settings.data));
-                            break;
+                        xhr.send(this.queryString(settings.data));
+                    } else {
+                        xhr.send(settings.data);
                     }
                 } else {
                     xhr.send();
@@ -784,12 +772,6 @@ var WindTurbine = function () {
             var attr;
             var new_settings = {};
 
-            /*
-            if (bStrictMode && settings && settings.constructor !== {}.constructor) {
-                throw new TypeError('Settings argument is not an object-literal.');
-            }
-            */
-
             this.copySettings(settings, new_settings);
 
             // assign element data attributes
@@ -824,8 +806,17 @@ var WindTurbine = function () {
                 new_settings.method = new_settings.method.toUpperCase();
             }
 
-            // default URL must be live URL
+            // default URL must be live URL, not a snapshot
             new_settings.url = new_settings.url || window.location.href;
+
+            // if data attachment is object literal, default "process" setting to true
+            if (new_settings.data && new_settings.process === null) {
+                if (new_settings.data.constructor == {}.constructor) {
+                    new_settings.process = true;
+                } /* else {
+                    new_settings.process = false;
+                } */
+            }
 
             return new_settings;
         },
@@ -846,7 +837,7 @@ var WindTurbine = function () {
             // try ... catch block for user defined callback functions, so that a faulty
             // `success/error/etc.` callback can never prevent a `complete` callback
             try {
-                if (typeof fn == 'string') {
+                if (fn instanceof String) {
                     var namespaces = fn.split('.');
                     var fnObjString = namespaces.pop();
                     var context = window;
@@ -864,12 +855,6 @@ var WindTurbine = function () {
                 console.error('Error in callback:');
                 console.error(e);
             }
-        },
-        isSafeMethod: function (method) {
-            if (method == 'GET' || method == 'HEAD')
-                return true;
-            // else
-            return false;
         },
         copySettings: function (settings, new_settings) {
             // copy additional settings
